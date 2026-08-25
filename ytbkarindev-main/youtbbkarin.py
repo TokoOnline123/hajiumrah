@@ -13,37 +13,23 @@ except ImportError:
 
 
 def run_ffmpeg(video_path, stream_key, is_shorts, log_callback):
+    # URL YouTube Live (RTMP)
     output_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
-    
-    # Membangun perintah FFmpeg dengan urutan filter yang benar
+    scale = "-vf scale=720:1280" if is_shorts else ""
     cmd = [
-        "ffmpeg", "-re", "-stream_loop", "-1", "-i", video_path
-    ]
-    
-    # Jika mode Shorts aktif, pasang filter scale sebelum format output
-    if is_shorts:
-        cmd += ["-vf", "scale=720:1280"]
-
-    cmd += [
+        "ffmpeg", "-re", "-stream_loop", "-1", "-i", video_path,
         "-c:v", "libx264", "-preset", "veryfast", "-b:v", "2500k",
         "-maxrate", "2500k", "-bufsize", "5000k",
         "-g", "60", "-keyint_min", "60",
         "-c:a", "aac", "-b:a", "128k",
-        "-f", "flv",
-        output_url
+        "-f", "flv"
     ]
-
+    if scale:
+        cmd += scale.split()
+    cmd.append(output_url)
     log_callback(f"Menjalankan: {' '.join(cmd)}")
     try:
-        process = subprocess.Popen(
-            cmd, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.STDOUT, 
-            text=True
-        )
-        # Simpan objek proses agar bisa di-terminate saat tombol Stop diklik
-        st.session_state['current_process'] = process
-
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in process.stdout:
             log_callback(line.strip())
         process.wait()
@@ -51,7 +37,6 @@ def run_ffmpeg(video_path, stream_key, is_shorts, log_callback):
         log_callback(f"Error: {e}")
     finally:
         log_callback("Streaming selesai atau dihentikan.")
-        st.session_state['current_process'] = None
 
 
 def main():
@@ -78,29 +63,25 @@ def main():
             height=300
         )
 
-    # List video yang ada di direktori
+    # List video yang ada
     video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv'))]
 
     st.write("Video yang tersedia:")
     selected_video = st.selectbox("Pilih video", video_files) if video_files else None
 
-    # Mengubah keterangan batas upload menjadi 2 GB
-    uploaded_file = st.file_uploader("Upload video baru (maks. 2 GB, mp4/flv - codec H264/AAC)", type=['mp4', 'flv'])
+    uploaded_file = st.file_uploader("Upload video baru (maks. 500 MB, mp4/flv - codec H264/AAC)", type=['mp4', 'flv'])
 
     if uploaded_file:
+        # Simpan upload secara bertahap agar file besar tidak perlu
+        # dibaca seluruhnya sekaligus ke memori.
         video_path = uploaded_file.name
-        if not os.path.exists(video_path):
-            with st.spinner("Menyimpan video..."):
-                with open(video_path, "wb") as f:
-                    while True:
-                        chunk = uploaded_file.read(1024 * 1024)  # 1 MB
-                        if not chunk:
-                            break
-                        f.write(chunk)
-            st.success(f"Video berhasil diupload: {uploaded_file.name}")
-            st.rerun()
-        else:
-            video_path = uploaded_file.name
+        with open(video_path, "wb") as f:
+            while True:
+                chunk = uploaded_file.read(1024 * 1024)  # 1 MB
+                if not chunk:
+                    break
+                f.write(chunk)
+        st.success(f"Video berhasil diupload: {uploaded_file.name}")
     elif selected_video:
         video_path = selected_video
     else:
@@ -112,48 +93,37 @@ def main():
 
     # Tempat log
     log_placeholder = st.empty()
-    if 'logs' not in st.session_state:
-        st.session_state['logs'] = []
+    logs = []
+    streaming = st.session_state.get('streaming', False)
 
     def log_callback(msg):
-        st.session_state['logs'].append(msg)
+        logs.append(msg)
         try:
-            log_placeholder.text("\n".join(st.session_state['logs'][-20:]))
+            log_placeholder.text("\n".join(logs[-20:]))
         except:
             print(msg)
 
     if 'ffmpeg_thread' not in st.session_state:
         st.session_state['ffmpeg_thread'] = None
-    if 'current_process' not in st.session_state:
-        st.session_state['current_process'] = None
-
-    col_btn1, col_btn2 = st.columns(2)
 
     # Tombol Start
-    with col_btn1:
-        if st.button("Mulai Streaming", type="primary"):
-            if not video_path or not stream_key:
-                st.error("Video dan Stream Key harus diisi!")
-            else:
-                st.session_state['streaming'] = True
-                st.session_state['ffmpeg_thread'] = threading.Thread(
-                    target=run_ffmpeg, args=(video_path, stream_key, is_shorts, log_callback), daemon=True)
-                st.session_state['ffmpeg_thread'].start()
-                st.success("Streaming dimulai ke YouTube!")
+    if st.button("Mulai Streaming"):
+        if not video_path or not stream_key:
+            st.error("Video dan Stream Key harus diisi!")
+        else:
+            st.session_state['streaming'] = True
+            st.session_state['ffmpeg_thread'] = threading.Thread(
+                target=run_ffmpeg, args=(video_path, stream_key, is_shorts, log_callback), daemon=True)
+            st.session_state['ffmpeg_thread'].start()
+            st.success("Streaming dimulai ke YouTube!")
 
-    # Tombol Stop (Menghentikan proses spesifik tanpa pkill massal)
-    with col_btn2:
-        if st.button("Hentikan Streaming"):
-            st.session_state['streaming'] = False
-            proc = st.session_state.get('current_process')
-            if proc is not None:
-                proc.terminate()
-                st.session_state['current_process'] = None
-                st.warning("Streaming dihentikan!")
-            else:
-                st.info("Tidak ada proses streaming aktif yang perlu dihentikan.")
+    # Tombol Stop
+    if st.button("Hentikan Streaming"):
+        st.session_state['streaming'] = False
+        os.system("pkill ffmpeg")
+        st.warning("Streaming dihentikan!")
 
-    log_placeholder.text("\n".join(st.session_state['logs'][-20:]))
+    log_placeholder.text("\n".join(logs[-20:]))
 
 
 if __name__ == '__main__':
