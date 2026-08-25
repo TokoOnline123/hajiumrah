@@ -69,19 +69,13 @@ def main():
     st.write("Video yang tersedia:")
     selected_video = st.selectbox("Pilih video", video_files) if video_files else None
 
-    uploaded_file = st.file_uploader("Upload video baru (maks. 1000 MB, mp4/flv - codec H264/AAC)", type=['mp4', 'flv'])
+    uploaded_file = st.file_uploader("Upload video baru (mp4/flv - codec H264/AAC)", type=['mp4', 'flv'])
 
     if uploaded_file:
-        # Simpan upload secara bertahap agar file besar tidak perlu
-        # dibaca seluruhnya sekaligus ke memori.
+        with open(uploaded_file.name, "wb") as f:
+            f.write(uploaded_file.read())
+        st.success("Video berhasil diupload!")
         video_path = uploaded_file.name
-        with open(video_path, "wb") as f:
-            while True:
-                chunk = uploaded_file.read(1024 * 1024)  # 1 MB
-                if not chunk:
-                    break
-                f.write(chunk)
-        st.success(f"Video berhasil diupload: {uploaded_file.name}")
     elif selected_video:
         video_path = selected_video
     else:
