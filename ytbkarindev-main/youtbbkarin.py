@@ -84,7 +84,8 @@ def main():
     st.write("Video yang tersedia:")
     selected_video = st.selectbox("Pilih video", video_files) if video_files else None
 
-    uploaded_file = st.file_uploader("Upload video baru (maks. 500 MB, mp4/flv - codec H264/AAC)", type=['mp4', 'flv'])
+    # Mengubah keterangan batas upload menjadi 2 GB
+    uploaded_file = st.file_uploader("Upload video baru (maks. 2 GB, mp4/flv - codec H264/AAC)", type=['mp4', 'flv'])
 
     if uploaded_file:
         video_path = uploaded_file.name
