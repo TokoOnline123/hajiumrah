@@ -13,30 +13,43 @@ except ImportError:
 
 
 def run_ffmpeg(video_path, stream_key, is_shorts, log_callback):
-    # URL YouTube Live (RTMP)
-    output_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
-    scale = "-vf scale=720:1280" if is_shorts else ""
-    cmd = [
-        "ffmpeg", "-re", "-stream_loop", "-1", "-i", video_path,
-        "-c:v", "libx264", "-preset", "veryfast", "-b:v", "2500k",
-        "-maxrate", "2500k", "-bufsize", "5000k",
-        "-g", "60", "-keyint_min", "60",
-        "-c:a", "aac", "-b:a", "128k",
-        "-f", "flv"
+    # URL YouTube Live via RTMPS (port 443) - lebih mungkin lolos firewall
+    # cloud sandbox yang memblokir RTMP biasa (port 1935).
+    # Kalau ini gagal, coba fallback ke backup server di bawah.
+    output_urls = [
+        f"rtmps://a.rtmps.youtube.com:443/live2/{stream_key}",
+        f"rtmps://b.rtmps.youtube.com:443/live2?backup=1/{stream_key}",
+        f"rtmp://a.rtmp.youtube.com/live2/{stream_key}",
     ]
-    if scale:
-        cmd += scale.split()
-    cmd.append(output_url)
-    log_callback(f"Menjalankan: {' '.join(cmd)}")
-    try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        for line in process.stdout:
-            log_callback(line.strip())
-        process.wait()
-    except Exception as e:
-        log_callback(f"Error: {e}")
-    finally:
-        log_callback("Streaming selesai atau dihentikan.")
+    scale = "-vf scale=720:1280" if is_shorts else ""
+
+    for output_url in output_urls:
+        cmd = [
+            "ffmpeg", "-re", "-stream_loop", "-1", "-i", video_path,
+            "-c:v", "libx264", "-preset", "veryfast", "-b:v", "2500k",
+            "-maxrate", "2500k", "-bufsize", "5000k",
+            "-g", "60", "-keyint_min", "60",
+            "-c:a", "aac", "-b:a", "128k",
+            "-f", "flv"
+        ]
+        if scale:
+            cmd += scale.split()
+        cmd.append(output_url)
+        log_callback(f"Mencoba: {output_url}")
+        log_callback(f"Menjalankan: {' '.join(cmd)}")
+        try:
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for line in process.stdout:
+                log_callback(line.strip())
+            process.wait()
+            if process.returncode == 0:
+                log_callback("Streaming selesai (dihentikan manual).")
+                return
+            else:
+                log_callback(f"Gagal dengan {output_url} (kode {process.returncode}), coba server berikutnya...")
+        except Exception as e:
+            log_callback(f"Error: {e}")
+    log_callback("Semua percobaan koneksi gagal. Kemungkinan port streaming diblokir oleh platform hosting.")
 
 
 def main():
