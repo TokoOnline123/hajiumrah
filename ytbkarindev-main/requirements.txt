@@ -1,4 +1,0 @@
-streamlit
-ffmpeg-python
-pytube
-playwright>=1.43.0
